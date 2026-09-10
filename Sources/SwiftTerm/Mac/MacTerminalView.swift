@@ -909,7 +909,9 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
     public override func mouseEntered(with event: NSEvent) {
         if (event.trackingArea?.userInfo?["tag"] as? String) == TerminalView.scrollerHoverTag {
             isMouseOverScroller = true
-            showScrollerTransient()
+            if scroller.isEnabled {
+                showScrollerTransient()
+            }
             return
         }
         super.mouseEntered(with: event)
@@ -2226,7 +2228,9 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         if event.deltaY == 0 {
             return
         }
-        showScrollerTransient()
+        if scroller.isEnabled {
+            showScrollerTransient()
+        }
         let velocity = calcScrollingVelocity(delta: Int (abs (event.deltaY)))
         if event.deltaY > 0 {
             scrollUp (lines: velocity)
