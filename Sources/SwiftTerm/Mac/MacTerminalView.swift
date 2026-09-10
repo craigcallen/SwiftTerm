@@ -506,7 +506,11 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
     }
 
-    let scrollerStyle: NSScroller.Style = .legacy
+    let scrollerStyle: NSScroller.Style = .overlay
+
+    // Tag used to identify the scroller's own hover-tracking area, distinct
+    // from the view-wide URL/mouse-mode tracking area in `tracking`.
+    private static let scrollerHoverTag = "termbarScrollerHover"
 
     func getScrollerFrame() -> CGRect {
         let scrollerWidth = NSScroller.scrollerWidth(for: .regular, scrollerStyle: scrollerStyle)
@@ -537,6 +541,41 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         }
         scroller.action = #selector(scrollerActivated)
         scroller.target = self
+
+        // Overlay scrollers should stay invisible at rest, appearing only
+        // while the user scrolls or hovers over the gutter (Ghostty/Terminal.app
+        // behavior), rather than sitting permanently on screen.
+        scroller.alphaValue = 0
+        scroller.addTrackingArea(NSTrackingArea(
+            rect: .zero,
+            options: [.inVisibleRect, .activeAlways, .mouseEnteredAndExited],
+            owner: self,
+            userInfo: ["tag": TerminalView.scrollerHoverTag]))
+    }
+
+    private var scrollerHideTimer: Timer?
+    private var isMouseOverScroller = false
+
+    func showScrollerTransient() {
+        scrollerHideTimer?.invalidate()
+        scrollerHideTimer = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            scroller.animator().alphaValue = 1
+        }
+        guard !isMouseOverScroller else { return }
+        scrollerHideTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: false) { [weak self] _ in
+            self?.hideScrollerIfIdle()
+        }
+    }
+
+    private func hideScrollerIfIdle() {
+        scrollerHideTimer = nil
+        guard !isMouseOverScroller else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.25
+            scroller.animator().alphaValue = 0
+        }
     }
 
     func updateScrollerFrame() {
@@ -867,7 +906,21 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         super.flagsChanged(with: event)
     }
     
+    public override func mouseEntered(with event: NSEvent) {
+        if (event.trackingArea?.userInfo?["tag"] as? String) == TerminalView.scrollerHoverTag {
+            isMouseOverScroller = true
+            showScrollerTransient()
+            return
+        }
+        super.mouseEntered(with: event)
+    }
+
     public override func mouseExited(with event: NSEvent) {
+        if (event.trackingArea?.userInfo?["tag"] as? String) == TerminalView.scrollerHoverTag {
+            isMouseOverScroller = false
+            hideScrollerIfIdle()
+            return
+        }
         turnOffUrlPreview()
         if linkHighlightMode == .hover || linkHighlightMode == .hoverWithModifier {
             let oldRange = linkHighlightRange
@@ -2173,6 +2226,7 @@ open class TerminalView: NSView, NSTextInputClient, NSUserInterfaceValidations, 
         if event.deltaY == 0 {
             return
         }
+        showScrollerTransient()
         let velocity = calcScrollingVelocity(delta: Int (abs (event.deltaY)))
         if event.deltaY > 0 {
             scrollUp (lines: velocity)
